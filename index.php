@@ -172,7 +172,7 @@ if (!empty($search_history)) {
 
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
             <div>
-                <h2 class="text-3xl font-extrabold text-gray-800">Katalog Perpustakaan</h2>
+                <h2 class="text-3xl font-extrabold text-gray-800">Selamat Datang Di Perpustakaan</h2>
                 <p class="text-gray-500">Halo <span class="text-blue-600 font-bold"><?= $_SESSION['username'] ?? 'Siswa' ?></span>, temukan bukumu!</p>
             </div>
             
