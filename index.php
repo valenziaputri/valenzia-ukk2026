@@ -11,44 +11,42 @@ if (!isset($_SESSION['user_id'])) {
 }
  $user_id = $_SESSION['user_id'];
 
+// --- PROSES PEMINJAMAN (LOGIKA BARU: TANPA CEK STOK, CEK STATUS LOANS) ---
 if (isset($_GET['pinjam'])) {
     $book_id = (int)$_GET['pinjam'];
     $loan_date = date('Y-m-d');
     $return_date = date('Y-m-d', strtotime('+7 days'));
-    $check_stock = mysqli_query($conn, "SELECT stock FROM books WHERE id = '$book_id'");
     
-    if ($check_stock && mysqli_num_rows($check_stock) > 0) {
-        $s = mysqli_fetch_assoc($check_stock);
+    // Cek apakah buku SEDANG DIPINJAM (oleh siapapun)
+    $check_loan = mysqli_query($conn, "SELECT id FROM loans WHERE book_id = '$book_id' AND status = 'dipinjam' LIMIT 1");
+    
+    if ($check_loan && mysqli_num_rows($check_loan) == 0) {
+        // Jika tidak ada yang meminjam, proses peminjaman
+        $insert = mysqli_query($conn, "INSERT INTO loans (user_id, book_id, loan_date, return_date, status) VALUES ('$user_id', '$book_id', '$loan_date', '$return_date', 'dipinjam')");
         
-        if ($s['stock'] > 0) {
-            $insert = mysqli_query($conn, "INSERT INTO loans (user_id, book_id, loan_date, return_date, status) VALUES ('$user_id', '$book_id', '$loan_date', '$return_date', 'dipinjam')");
-            $update = mysqli_query($conn, "UPDATE books SET stock = stock - 1 WHERE id = '$book_id'");
-            
-            if ($insert && $update) {
-                header("Location: index.php?msg=Buku berhasil dipinjam!");
-            } else {
-                header("Location: index.php?msg=Gagal memproses peminjaman.");
-            }
+        // Tidak perlu mengurangi stock
+        
+        if ($insert) {
+            header("Location: index.php?msg=Buku berhasil dipinjam!");
         } else {
-            header("Location: index.php?msg=Maaf, stok habis!");
+            header("Location: index.php?msg=Gagal memproses peminjaman.");
         }
     } else {
-        header("Location: index.php?msg=Buku tidak ditemukan.");
+        header("Location: index.php?msg=Maaf, buku sedang dipinjam orang lain!");
     }
     exit();
 }
 
+// --- PROSES PENGEMBALIAN (TANPA MENGEMBALIKAN STOCK) ---
 if (isset($_GET['kembali'])) {
     $loan_id = $_GET['kembali'];
     $qLoan = mysqli_query($conn, "SELECT * FROM loans WHERE id = '$loan_id' AND user_id = '$user_id' AND status = 'dipinjam'");
     
     if ($qLoan && mysqli_num_rows($qLoan) > 0) {
-        $dLoan = mysqli_fetch_assoc($qLoan);
-        $book_id = $dLoan['book_id'];
+        // Update status saja, tidak perlu update stock
         $upLoan = mysqli_query($conn, "UPDATE loans SET status = 'kembali' WHERE id = '$loan_id'");
-        $upBook = mysqli_query($conn, "UPDATE books SET stock = stock + 1 WHERE id = '$book_id'");
         
-        if ($upLoan && $upBook) {
+        if ($upLoan) {
             header("Location: index.php?msg=Buku berhasil dikembalikan!");
         } else {
             header("Location: index.php?msg=Gagal update database.");
@@ -60,25 +58,28 @@ if (isset($_GET['kembali'])) {
 }
 
 // --- LOGIKA PENCARIAN KATALOG BUKU ---
- $search = "";
-if (isset($_GET['search'])) {
-    $search = mysqli_real_escape_string($conn, $_GET['search']);
-    // Tambahkan filter pencarian ke kolom kondisi juga
-    $query = "SELECT * FROM books WHERE title LIKE '%$search%' OR author LIKE '%$search%' OR kondisi LIKE '%$search%' ORDER BY id DESC";
-} else {
-    $query = "SELECT * FROM books ORDER BY id DESC";
+ $search = isset($_GET['search']) ? mysqli_real_escape_string($conn, $_GET['search']) : '';
+
+// Query dasar
+ $query = "SELECT * FROM books WHERE 1=1";
+
+// Logika Pencarian (Judul/Penulis) saja
+if (!empty($search)) {
+    $query .= " AND (title LIKE '%$search%' OR author LIKE '%$search%')";
 }
+
+ $query .= " ORDER BY id DESC";
  $books = mysqli_query($conn, $query);
 
-// --- MODIFIKASI 1: AMBIL INPUT PENCARIAN UNTUK PEMINJAMAN & RIWAYAT ---
+// --- LOGIKA PENCARIAN UNTUK PEMINJAMAN & RIWAYAT ---
  $search_active = isset($_GET['search_active']) ? mysqli_real_escape_string($conn, $_GET['search_active']) : '';
  $search_history = isset($_GET['search_history']) ? mysqli_real_escape_string($conn, $_GET['search_history']) : '';
 
 // 1. Peminjaman Aktif
  $loanQuery = "SELECT l.*, b.title 
-              FROM loans l 
-              JOIN books b ON l.book_id = b.id 
-              WHERE l.user_id = '$user_id' AND l.status = 'dipinjam'";
+             FROM loans l 
+             JOIN books b ON l.book_id = b.id 
+             WHERE l.user_id = '$user_id' AND l.status = 'dipinjam'";
 if (!empty($search_active)) {
     $loanQuery .= " AND b.title LIKE '%$search_active%'";
 }
@@ -87,9 +88,9 @@ if (!empty($search_active)) {
 
 // 2. Riwayat Peminjaman
  $historyQuery = "SELECT l.*, b.title 
-                 FROM loans l 
-                 JOIN books b ON l.book_id = b.id 
-                 WHERE l.user_id = '$user_id' AND l.status = 'kembali'";
+               FROM loans l 
+               JOIN books b ON l.book_id = b.id 
+               WHERE l.user_id = '$user_id' AND l.status = 'kembali'";
 if (!empty($search_history)) {
     $historyQuery .= " AND b.title LIKE '%$search_history%'";
 }
@@ -165,55 +166,56 @@ if (!empty($search_history)) {
     <div class="p-8 max-w-7xl mx-auto">
         <!-- Notifikasi -->
         <?php if(isset($_GET['msg'])): ?>
-            <div class="mb-6 p-4 bg-green-50 border-l-4 border-green-500 text-green-700 rounded shadow-sm no-print">
-                <i class="fas fa-check-circle mr-2"></i> <?= htmlspecialchars($_GET['msg']) ?>
+            <div class="mb-6 p-4 bg-green-50 border-l-4 border-green-500 text-green-700 rounded-xl shadow-sm flex items-center justify-between fade-in">
+                <div class="flex items-center gap-2">
+                    <i class="fas fa-check-circle text-xl"></i> 
+                    <span class="font-bold text-sm md:text-base"><?= htmlspecialchars($_GET['msg']) ?></span>
+                </div>
+        
+                <button onclick="window.location.href = 'index.php'" class="bg-green-100 text-green-800 hover:bg-green-200 px-4 py-2 rounded-lg text-xs md:text-sm font-bold uppercase shadow-sm transition">
+                    <i class="fas fa-check mr-1"></i> Tutup
+                </button>
             </div>
         <?php endif; ?>
 
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <div>
                 <h2 class="text-3xl font-extrabold text-gray-800">Selamat Datang Di Perpustakaan</h2>
                 <p class="text-gray-500">Halo <span class="text-blue-600 font-bold"><?= $_SESSION['username'] ?? 'Siswa' ?></span>, temukan bukumu!</p>
             </div>
             
             <form action="" method="GET" class="relative w-full md:w-80 no-print">
-                <input type="text" name="search" value="<?= $search ?>" placeholder="Cari judul, penulis, kondisi..." 
+                <input type="text" name="search" value="<?= $search ?>" placeholder="Cari judul atau penulis..." 
                        class="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm">
                 <i class="fas fa-search absolute left-4 top-4 text-gray-400"></i>
-                <!-- Input hidden agar parameter pencarian bawah tidak hilang saat cari katalog -->
+                <!-- Input hidden agar state pencarian lain tidak hilang -->
                 <input type="hidden" name="search_active" value="<?= $search_active ?>">
                 <input type="hidden" name="search_history" value="<?= $search_history ?>">
             </form>
         </div>
 
+        <!-- BAGIAN FILTER KONDISI SUDAH DIHAPUS -->
+
         <h3 class="text-xl font-bold text-gray-700 mb-4 border-b pb-2"><i class="fas fa-layer-group mr-2"></i>Daftar Buku</h3>
+        
+        <!-- GRID CARD BUKU (PERBAIKAN: TANPA STOK & KONDISI FISIK) -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12 no-print">
             <?php if($books && mysqli_num_rows($books) > 0): ?>
                 <?php while($b = mysqli_fetch_assoc($books)): 
-                    // Fallback data kondisi
-                    $kondisi = isset($b['kondisi']) ? $b['kondisi'] : 'Baik';
-                    $persentase = isset($b['persentase_kondisi']) ? (int)$b['persentase_kondisi'] : 90;
-
-                    // Tentukan warna badge & progress bar
-                    if($persentase >= 80) {
-                        $color_class = 'text-green-700 bg-green-100 border-green-200';
-                        $bar_color = 'bg-green-500';
-                    } elseif($persentase >= 50) {
-                        $color_class = 'text-yellow-700 bg-yellow-100 border-yellow-200';
-                        $bar_color = 'bg-yellow-400';
-                    } else {
-                        $color_class = 'text-red-700 bg-red-100 border-red-200';
-                        $bar_color = 'bg-red-500';
-                    }
+                    // CEK STATUS KETERSEDIAAN REAL-TIME
+                    $check_avail = mysqli_query($conn, "SELECT id, user_id FROM loans WHERE book_id = " . $b['id'] . " AND status='dipinjam' LIMIT 1");
+                    $loan_data = ($check_avail && mysqli_num_rows($check_avail) > 0) ? mysqli_fetch_assoc($check_avail) : null;
+                    
+                    $is_borrowed_by_anyone = ($loan_data !== null);
+                    $is_borrowed_by_me = ($loan_data && $loan_data['user_id'] == $user_id);
                 ?>
                 <div class="bg-white rounded-2xl p-6 shadow-sm hover:shadow-xl transition-all border border-gray-100 flex flex-col h-full justify-between group">
                     <div>
                         <div class="mb-3 flex justify-between items-start">
-                            <span class="<?= $b['stock'] > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' ?> text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wide">
-                                <?= $b['stock'] > 0 ? 'Stok: ' . $b['stock'] : 'Habis' ?>
-                            </span>
-                            <div class="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center text-blue-400">
-                                <i class="fas fa-book"></i>
+                            <!-- Hapus Badge Stok & Ikon Kondisi Fisik -->
+                            <!-- Placeholder Icon Buku -->
+                            <div class="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-blue-500 shadow-sm">
+                                <i class="fas fa-book text-lg"></i>
                             </div>
                         </div>
                         
@@ -221,36 +223,29 @@ if (!empty($search_history)) {
                             <?= $b['title'] ?>
                         </h3>
                         
-                        <p class="text-sm text-gray-500 flex items-center gap-2 mb-1">
+                        <p class="text-sm text-gray-500 flex items-center gap-2 mb-4">
                             <i class="fas fa-pen-nib text-xs"></i> <?= $b['author'] ?>
                         </p>
-
-                        <!-- TAMBAHAN: DISPLAY KONDISI BUKU -->
-                        <div class="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                            <div class="flex justify-between items-center mb-1">
-                                <span class="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Kondisi Fisik</span>
-                                <span class="text-[10px] font-bold <?= $persentase >= 50 ? 'text-green-600' : 'text-red-600' ?>"><?= $kondisi ?></span>
-                            </div>
-                            <div class="w-full bg-gray-200 rounded-full h-1.5">
-                                <div class="<?= $bar_color ?> h-1.5 rounded-full transition-all duration-500" style="width: <?= $persentase ?>%"></div>
-                            </div>
-                            <div class="text-right mt-1">
-                                <span class="text-[10px] font-bold text-gray-400"><?= $persentase ?>%</span>
-                            </div>
-                        </div>
                     </div>
 
                     <div class="mt-4 pt-4 border-t border-gray-100">
-                        <?php if($b['stock'] > 0): ?>
+                        <?php if($is_borrowed_by_me): ?>
+                            <!-- Saya yang meminjam -->
+                            <button disabled class="w-full bg-orange-100 text-orange-600 py-2.5 rounded-xl text-sm font-bold cursor-default border border-orange-200">
+                                <i class="fas fa-clock mr-1"></i> Sedang Anda Pinjam
+                            </button>
+                        <?php elseif($is_borrowed_by_anyone): ?>
+                            <!-- Orang lain yang meminjam -->
+                            <button disabled class="w-full bg-gray-100 text-gray-400 py-2.5 rounded-xl text-sm font-bold cursor-not-allowed border border-gray-200">
+                                <i class="fas fa-lock mr-1"></i> Sedang Dipinjam
+                            </button>
+                        <?php else: ?>
+                            <!-- Tersedia -->
                             <a href="?pinjam=<?= $b['id'] ?>&search=<?= $search ?>&search_active=<?= $search_active ?>&search_history=<?= $search_history ?>" 
                                onclick="return confirm('Apakah Anda yakin ingin meminjam buku \'<?= addslashes($b['title']) ?>\'?')" 
-                               class="block w-full text-center bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl text-sm font-bold shadow-md shadow-blue-100 transition-all active:scale-95">
+                               class="block w-full text-center bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-sm-xl text-sm font-bold shadow-md shadow-blue-100 transition-all active:scale-95">
                                 <i class="fas fa-plus mr-1"></i> Pinjam
                             </a>
-                        <?php else: ?>
-                            <button disabled class="w-full bg-gray-100 text-gray-400 py-2.5 rounded-xl text-sm font-bold cursor-not-allowed border border-gray-200">
-                                Stok Kosong
-                            </button>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -271,10 +266,9 @@ if (!empty($search_history)) {
                         <?= ($myLoans) ? mysqli_num_rows($myLoans) : 0 ?> Buku Aktif
                     </span>
                 </div>
-                <!-- MODIFIKASI 2: FORM PENCARIAN PEMINJAMAN AKTIF -->
                 <form action="" method="GET" class="w-full md:w-64">
-                    <input type="hidden" name="search" value="<?= $search ?>"> <!-- Menyimpan state katalog -->
-                    <input type="hidden" name="search_history" value="<?= $search_history ?>"> <!-- Menyimpan state riwayat -->
+                    <input type="hidden" name="search" value="<?= $search ?>">
+                    <input type="hidden" name="search_history" value="<?= $search_history ?>">
                     <div class="relative">
                         <input type="text" name="search_active" value="<?= $search_active ?>" placeholder="Cari judul buku..." 
                                class="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-gray-300 focus:ring-1 focus:ring-blue-500 outline-none">
@@ -328,17 +322,16 @@ if (!empty($search_history)) {
             </div>
         </div>
 
-        <!-- RIWAYAT PEMINJAMAN (BARU + FITUR PRINT + PENCARIAN) -->
+        <!-- RIWAYAT PEMINJAMAN -->
         <div id="printable-history" class="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden mb-12">
             <div class="bg-gray-100 px-6 py-4 border-b border-gray-200 flex flex-col md:flex-row justify-between md:items-center gap-4 no-print">
                 <div>
                     <h3 class="text-xl font-bold text-gray-800"><i class="fas fa-history mr-2"></i>Riwayat Peminjaman</h3>
                 </div>
                 <div class="flex gap-2">
-                    <!-- MODIFIKASI 3: FORM PENCARIAN RIWAYAT -->
                     <form action="" method="GET" class="w-full md:w-64">
-                        <input type="hidden" name="search" value="<?= $search ?>"> <!-- Menyimpan state katalog -->
-                        <input type="hidden" name="search_active" value="<?= $search_active ?>"> <!-- Menyimpan state aktif -->
+                        <input type="hidden" name="search" value="<?= $search ?>">
+                        <input type="hidden" name="search_active" value="<?= $search_active ?>">
                         <div class="relative">
                             <input type="text" name="search_history" value="<?= $search_history ?>" placeholder="Cari riwayat..." 
                                    class="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-gray-300 focus:ring-1 focus:ring-blue-500 outline-none">
@@ -351,7 +344,6 @@ if (!empty($search_history)) {
                 </div>
             </div>
             
-            <!-- Judul yang hanya muncul saat Print -->
             <h2 class="print-only-title">Laporan Riwayat Peminjaman</h2>
             
             <div class="overflow-x-auto">
@@ -388,7 +380,6 @@ if (!empty($search_history)) {
                     </tbody>
                 </table>
             </div>
-            <!-- Footer Kecil untuk Print (Tanggal Cetak) -->
             <div class="p-4 text-center text-xs text-gray-400 print:hidden mt-2">
                 Dicetak pada: <?= date('d-m-Y H:i') ?>
             </div>

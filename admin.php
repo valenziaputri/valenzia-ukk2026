@@ -16,35 +16,34 @@ if(mysqli_num_rows($check_col) == 0){
 
 // --- PROSES FORM (LOGIKA BACKEND) ---
 
-// LOGIKA UPDATE BUKU BARU
+// LOGIKA UPDATE BUKU
 if (isset($_POST['update_book'])) {
     $id = (int)$_POST['book_id'];
     $title = mysqli_real_escape_string($conn, $_POST['title']);
     $author = mysqli_real_escape_string($conn, $_POST['author']);
-    $stock = (int)$_POST['stock'];
-    mysqli_query($conn, "UPDATE books SET title='$title', author='$author', stock='$stock' WHERE id=$id");
+    mysqli_query($conn, "UPDATE books SET title='$title', author='$author' WHERE id=$id");
     header("Location: admin.php?section=books_list&msg=Data Buku Berhasil Diupdate");
     exit();
 }
 
+// LOGIKA UPDATE KONDISI (Dibiarkan backendnya berjalan jika akses langsung, tapi tidak ada menu UI)
 if (isset($_POST['update_condition'])) {
     $id = (int)$_POST['book_id'];
     $kondisi = mysqli_real_escape_string($conn, $_POST['kondisi']);
     $persentase = (int)$_POST['persentase'];
     mysqli_query($conn, "UPDATE books SET kondisi='$kondisi', persentase_kondisi='$persentase' WHERE id=$id");
-    header("Location: admin.php?section=books&msg=Kondisi Buku Diperbarui");
+    header("Location: admin.php?section=books_list&msg=Kondisi Buku Diperbarui"); // Redirect ke list
     exit();
 }
 
 if (isset($_POST['add_book'])) {
     $title = mysqli_real_escape_string($conn, $_POST['title']);
     $author = mysqli_real_escape_string($conn, $_POST['author']);
-    $stock = (int)$_POST['stock'];
     $kondisi = "Baik";
-    $persentase = 90;
-    $query = "INSERT INTO books (title, author, stock, kondisi, persentase_kondisi) VALUES ('$title', '$author', '$stock', '$kondisi', '$persentase')";
+    $persentase = 100;
+    $query = "INSERT INTO books (title, author, kondisi, persentase_kondisi) VALUES ('$title', '$author', '$kondisi', '$persentase')";
     mysqli_query($conn, $query);
-    header("Location: admin.php?section=books&msg=Buku Berhasil Ditambahkan");
+    header("Location: admin.php?section=books_list&msg=Buku Berhasil Ditambahkan");
     exit();
 }
 
@@ -61,7 +60,7 @@ if (isset($_POST['add_member'])) {
     $password = mysqli_real_escape_string($conn, $_POST['password']);
     $hashed_password = password_hash($password, PASSWORD_DEFAULT);
     mysqli_query($conn, "INSERT INTO users (username, password, role) VALUES ('$username', '$hashed_password', 'siswa')");
-    header("Location: admin.php?section=members&msg=Anggota Berhasil Ditambahkan");
+    header("Location: admin.php?section=members_list&msg=Anggota Berhasil Ditambahkan");
     exit();
 }
 
@@ -76,7 +75,7 @@ if (isset($_POST['update_member'])) {
     } else {
         mysqli_query($conn, "UPDATE users SET username='$username', role='$role' WHERE id=$id");
     }
-    header("Location: admin.php?section=members&msg=Data Anggota Berhasil Diperbarui");
+    header("Location: admin.php?section=members_list&msg=Data Anggota Berhasil Diperbarui");
     exit();
 }
 
@@ -84,7 +83,7 @@ if (isset($_GET['delete_user'])) {
     $id = (int)$_GET['delete_user'];
     mysqli_query($conn, "DELETE FROM loans WHERE user_id = $id");
     mysqli_query($conn, "DELETE FROM users WHERE id = $id");
-    header("Location: admin.php?section=members&msg=Anggota Berhasil Dihapus");
+    header("Location: admin.php?section=members_list&msg=Anggota Berhasil Dihapus");
     exit();
 }
 
@@ -93,15 +92,13 @@ if (isset($_POST['add_loan'])) {
     $book_id = (int)$_POST['book_id'];
     $loan_date = date('Y-m-d');
     $return_date = date('Y-m-d', strtotime($loan_date . ' + 7 days'));
-    $check_stock = mysqli_query($conn, "SELECT stock FROM books WHERE id=$book_id");
-    $stock = mysqli_fetch_assoc($check_stock);
+    $check_loan = mysqli_query($conn, "SELECT id FROM loans WHERE book_id = $book_id AND status = 'dipinjam' LIMIT 1");
     
-    if ($stock['stock'] > 0) {
+    if (mysqli_num_rows($check_loan) == 0) {
         mysqli_query($conn, "INSERT INTO loans (user_id, book_id, loan_date, return_date, status) VALUES ('$user_id', '$book_id', '$loan_date', '$return_date', 'dipinjam')");
-        mysqli_query($conn, "UPDATE books SET stock = stock - 1 WHERE id=$book_id");
-        header("Location: admin.php?section=loans&msg=Peminjaman Berhasil Ditambahkan");
+        header("Location: admin.php?section=loans_active&msg=Peminjaman Berhasil Ditambahkan");
     } else {
-        header("Location: admin.php?section=loans&msg=Gagal: Stok Buku Habis!");
+        header("Location: admin.php?section=add_loan&msg=Gagal: Buku sedang dipinjam orang lain!");
     }
     exit();
 }
@@ -110,11 +107,9 @@ if (isset($_GET['delete_loan'])) {
     $loan_id = (int)$_GET['delete_loan'];
     $data = mysqli_query($conn, "SELECT book_id FROM loans WHERE id=$loan_id");
     if(mysqli_num_rows($data) > 0){
-        $d = mysqli_fetch_assoc($data);
-        mysqli_query($conn, "UPDATE books SET stock = stock + 1 WHERE id=" . $d['book_id']);
         mysqli_query($conn, "DELETE FROM loans WHERE id=$loan_id");
     }
-    header("Location: admin.php?section=loans&msg=Peminjaman Berhasil Dihapus");
+    header("Location: admin.php?section=loans_active&msg=Peminjaman Berhasil Dihapus");
     exit();
 }
 
@@ -122,16 +117,13 @@ if (isset($_GET['kembalikan'])) {
     $loan_id = (int)$_GET['kembalikan'];
     $loan_data = mysqli_query($conn, "SELECT book_id FROM loans WHERE id=$loan_id");
     if(mysqli_num_rows($loan_data) > 0){
-        $loan = mysqli_fetch_assoc($loan_data);
-        $book_id = $loan['book_id'];
         mysqli_query($conn, "UPDATE loans SET status='kembali' WHERE id=$loan_id");
-        mysqli_query($conn, "UPDATE books SET stock = stock + 1 WHERE id=$book_id");
     }
-    header("Location: admin.php?section=loans&msg=Buku Telah Dikembalikan");
+    header("Location: admin.php?section=loans_active&msg=Buku Telah Dikembalikan");
     exit();
 }
 
-// --- AMBIL DATA STATISTIK UNTUK DASHBOARD ---
+// --- AMBIL DATA STATISTIK ---
  $count_books = mysqli_num_rows(mysqli_query($conn, "SELECT id FROM books"));
  $count_members = mysqli_num_rows(mysqli_query($conn, "SELECT id FROM users WHERE role='siswa'"));
  $count_loans_active = mysqli_num_rows(mysqli_query($conn, "SELECT id FROM loans WHERE status='dipinjam'"));
@@ -141,7 +133,7 @@ if (isset($_GET['kembalikan'])) {
 
 // --- LOGIKA FILTER & QUERY ---
 
-// 1. Data Buku (Support Filter Tanggal)
+// 1. Data Buku
  $search_books = isset($_GET['search_books']) ? mysqli_real_escape_string($conn, $_GET['search_books']) : '';
  $date_books = isset($_GET['date_books']) ? $_GET['date_books'] : '';
 
@@ -151,8 +143,15 @@ if ($date_books) $query_books .= " AND DATE(created_at) = '$date_books'";
  $query_books .= " ORDER BY id DESC";
  $books = mysqli_query($conn, $query_books);
 
-// 2. Data Kondisi
- $condition_books = mysqli_query($conn, "SELECT * FROM books ORDER BY id DESC");
+// 2. Data Kondisi (Query disimpan jika dibutuhkan backend, tapi UI dihapus)
+ $filter_kondisi = isset($_GET['filter_kondisi']) ? $_GET['filter_kondisi'] : '';
+ $query_condition = "SELECT * FROM books WHERE 1=1";
+if ($filter_kondisi) {
+    $safe_filter = mysqli_real_escape_string($conn, $filter_kondisi);
+    $query_condition .= " AND kondisi = '$safe_filter'";
+}
+ $query_condition .= " ORDER BY id DESC";
+ $condition_books = mysqli_query($conn, $query_condition);
 
 // 3. Data Anggota
  $search_members = isset($_GET['search_members']) ? mysqli_real_escape_string($conn, $_GET['search_members']) : '';
@@ -161,30 +160,30 @@ if ($search_members) $query_members .= " AND username LIKE '%$search_members%'";
  $query_members .= " ORDER BY id DESC";
  $members = mysqli_query($conn, $query_members);
 
-// 4. Data Peminjaman Aktif (Support Filter Tanggal)
+// 4. Data Peminjaman Aktif
  $search_loans = isset($_GET['search_loans']) ? mysqli_real_escape_string($conn, $_GET['search_loans']) : '';
  $date_loans = isset($_GET['date_loans']) ? $_GET['date_loans'] : '';
 
  $query_loans = "SELECT loans.*, users.username, books.title
-            FROM loans JOIN users ON loans.user_id = users.id
-            JOIN books ON loans.book_id = books.id
-            WHERE status = 'dipinjam'";
+          FROM loans JOIN users ON loans.user_id = users.id
+          JOIN books ON loans.book_id = books.id
+          WHERE status = 'dipinjam'";
 if ($search_loans) $query_loans .= " AND (users.username LIKE '%$search_loans%' OR books.title LIKE '%$search_loans%')";
 if ($date_loans) $query_loans .= " AND DATE(loan_date) = '$date_loans'";
  $query_loans .= " ORDER BY loan_date ASC";
  $loans = mysqli_query($conn, $query_loans);
 
-// 5. Data Riwayat (Support Filter Nama)
+// 5. Data Riwayat
  $search_history = isset($_GET['search_history']) ? mysqli_real_escape_string($conn, $_GET['search_history']) : '';
  $query_history = "SELECT loans.*, users.username, books.title
-          FROM loans JOIN users ON loans.user_id = users.id
-          JOIN books ON loans.book_id = books.id
-          WHERE status != 'dipinjam'";
+         FROM loans JOIN users ON loans.user_id = users.id
+         JOIN books ON loans.book_id = books.id
+         WHERE status != 'dipinjam'";
 if ($search_history) $query_history .= " AND (users.username LIKE '%$search_history%' OR books.title LIKE '%$search_history%')";
  $query_history .= " ORDER BY loan_date DESC";
  $history = mysqli_query($conn, $query_history);
 
-// Data Dropdowns
+// Data Dropdowns 
  $all_members = mysqli_query($conn, "SELECT * FROM users WHERE role='siswa' ORDER BY username ASC");
  $all_books_drop = mysqli_query($conn, "SELECT * FROM books ORDER BY title ASC");
 ?>
@@ -203,67 +202,20 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         
-        /* Animasi Transisi */
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
         /* --- STYLE KHUSUS PRINT --- */
         @media print {
-            /* 1. Sembunyikan elemen UI */
-            .no-print, nav, #sidebar, button, input[type="date"], input[type="text"], form, .print-controls {
-                display: none !important; 
-            }
-            
-            /* 2. Reset Layout */
-            body, .flex, .lg\\:ml-72, main, .max-w-7xl {
-                width: 100% !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                position: static !important;
-                overflow: visible !important;
-                height: auto !important;
-            }
-
-            /* 3. Styling Tabel Print */
-            table { 
-                width: 100% !important; 
-                border-collapse: collapse !important; 
-                margin-bottom: 20px !important;
-                font-size: 12px !important;
-            }
-
-            th, td { 
-                border: 1px solid #000 !important; 
-                padding: 8px !important; 
-                text-align: left !important; 
-                color: #000 !important;
-            }
-
-            th { 
-                background-color: #f3f4f6 !important;
-                font-weight: bold !important;
-                -webkit-print-color-adjust: exact; 
-            }
-
-            /* 4. Header Khusus Print (Muncul saat print) */
-            .print-header {
-                display: block !important;
-                text-align: center;
-                margin-bottom: 20px !important;
-                border-bottom: 2px solid #000;
-                padding-bottom: 10px;
-            }
-
-            /* 5. Sembunyikan kolom aksi saat print */
-            .no-print-col {
-                display: none !important;
-            }
+            .no-print, nav, #sidebar, button, input[type="date"], input[type="text"], form, .print-controls { display: none !important; }
+            body, .flex, .lg\:ml-72, main, .max-w-7xl { width: 100% !important; margin: 0 !important; padding: 0 !important; position: static !important; overflow: visible !important; height: auto !important; }
+            table { width: 100% !important; border-collapse: collapse !important; margin-bottom: 20px !important; font-size: 12px !important; }
+            th, td { border: 1px solid #000 !important; padding: 8px !important; text-align: left !important; color: #000 !important; }
+            th { background-color: #f3f4f6 !important; font-weight: bold !important; -webkit-print-color-adjust: exact; }
+            .print-header { display: block !important; text-align: center; margin-bottom: 20px !important; border-bottom: 2px solid #000; padding-bottom: 10px; }
+            .no-print-col { display: none !important; }
         }
-
-        /* CSS Default (Layar) */
-        .print-header {
-            display: none !important;
-        }
+        .print-header { display: none !important; }
     </style>
 </head>
 <body class="bg-slate-50 font-sans text-slate-800 h-screen flex overflow-hidden">
@@ -284,12 +236,12 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
             <div class="group">
                 <button onclick="toggleSubmenu('menuBuku')" class="w-full flex items-center justify-between px-3 py-2.5 text-slate-600 rounded-xl hover:bg-slate-50 transition">
                     <div class="flex items-center gap-3"><i class="fas fa-book w-5 text-center"></i> Buku</div>
-                    <i class="fas fa-chevron-down text-xs transition-transform <?= in_array($section, ['add_book', 'books_list', 'book_condition']) ? 'rotate-180' : '' ?>"></i>
+                    <i class="fas fa-chevron-down text-xs transition-transform <?= in_array($section, ['add_book', 'books_list']) ? 'rotate-180' : '' ?>"></i>
                 </button>
-                <div id="menuBuku" class="pl-10 pr-2 mt-1 space-y-1 <?= in_array($section, ['add_book', 'books_list', 'book_condition']) ? '' : 'hidden' ?>">
+                <div id="menuBuku" class="pl-10 pr-2 mt-1 space-y-1 <?= in_array($section, ['add_book', 'books_list']) ? '' : 'hidden' ?>">
                     <a href="?section=add_book" class="block px-3 py-2 text-xs rounded-lg transition <?= $section == 'add_book' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:text-blue-600' ?>">+ Tambah Buku</a>
                     <a href="?section=books_list" class="block px-3 py-2 text-xs rounded-lg transition <?= $section == 'books_list' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:text-blue-600' ?>">Katalog Buku</a>
-                    <a href="?section=book_condition" class="block px-3 py-2 text-xs rounded-lg transition <?= $section == 'book_condition' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-500 hover:text-blue-600' ?>">Kondisi Buku</a>
+                    <!-- MENU KONDISI BUKU DIHAPUS -->
                 </div>
             </div>
 
@@ -352,7 +304,7 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
                 
                 <!-- DASHBOARD -->
                 <?php if($section == 'dashboard'): ?>
-                    <h2 class="text-2xl font-bold text-slate-800 mb-6">Selamat Datang Di Perpustakaan Smecha</h2>
+                    <h2 class="text-2xl font-bold text-slate-800 mb-6">Selamat Datang!</h2>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                         <div class="bg-gradient-to-br from-orange-400 to-orange-500 rounded-3xl p-6 text-white shadow-lg shadow-orange-200 transform hover:scale-105 transition">
                             <div class="flex justify-between items-start">
@@ -383,7 +335,7 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
                     </div>
                 <?php endif; ?>
 
-                <!-- SECTION BUKU: KATALOG -->
+                <!-- SECTION BUKU: KATALOG (KOLOM KONDISI DIHAPUS) -->
                 <?php if($section == 'books_list'): ?>
                     <div class="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden print-content">
                         <div class="p-5 border-b border-slate-50 bg-blue-50/50 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 no-print">
@@ -403,11 +355,9 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
                             </div>
                         </div>
 
-                        <!-- Header Print -->
                         <div class="print-header">
                             <h1 class="text-xl font-bold uppercase mb-1">Laporan Katalog Buku</h1>
                             <p class="text-sm">Dicetak: <?= date('d-m-Y') ?></p>
-                            <?php if($date_books): ?><p class="text-xs mt-1 font-bold">Filter Tanggal: <?= $date_books ?></p><?php endif; ?>
                         </div>
 
                         <div class="overflow-x-auto">
@@ -416,21 +366,33 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
                                     <tr>
                                         <th class="p-4">Judul</th>
                                         <th class="p-4">Penulis</th>
-                                        <th class="p-4">Stok</th>
-                                        <th class="p-4">Kondisi</th>
+                                        <th class="p-4 text-center">Status Ketersediaan</th>
+                                        <!-- KOLOM KONDISI DIHAPUS -->
                                         <th class="p-4 no-print-col">Aksi</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-50">
-                                    <?php while($row = mysqli_fetch_assoc($books)): ?>
+                                    <?php while($row = mysqli_fetch_assoc($books)): 
+                                        $cek_status = mysqli_query($conn, "SELECT id FROM loans WHERE book_id = " . $row['id'] . " AND status='dipinjam' LIMIT 1");
+                                        $is_borrowed = (mysqli_num_rows($cek_status) > 0);
+                                    ?>
                                     <tr class="hover:bg-slate-50 transition">
                                         <td class="p-4 font-bold text-slate-800"><?= $row['title'] ?></td>
                                         <td class="p-4 text-slate-600"><?= $row['author'] ?></td>
-                                        <td class="p-4 text-center"><span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px] font-bold"><?= $row['stock'] ?></span></td>
-                                        <td class="p-4 text-center"><span class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] uppercase"><?= $row['kondisi'] ?? 'Baik' ?></span></td>
-                                        <td class="p-4 text-center flex justify-center gap-2 no-print-col">
-                                            <button onclick="openEditBookModal(<?= $row['id'] ?>, '<?= addslashes($row['title']) ?>', '<?= addslashes($row['author']) ?>', <?= $row['stock'] ?>)" class="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white w-8 h-8 rounded-xl flex items-center justify-center transition"><i class="fas fa-edit text-xs"></i></button>
-                                            <a href="?delete=<?= $row['id'] ?>&section=books_list" onclick="return confirm('Hapus buku ini?')" class="bg-red-50 text-red-500 hover:bg-red-500 hover:text-white w-8 h-8 rounded-xl flex items-center justify-center transition"><i class="fas fa-trash text-xs"></i></a>
+                                        <td class="p-4 text-center">
+                                            <?php if($is_borrowed): ?>
+                                                <span class="bg-red-100 text-red-700 border border-red-200 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide">
+                                                    <i class="fas fa-hand-holding mr-1"></i> Terpinjam
+                                                </span>
+                                            <?php else: ?>
+                                                <span class="bg-green-100 text-green-700 border border-green-200 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide">
+                                                    <i class="fas fa-check-circle mr-1"></i> Ready
+                                                </span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="p-4 text-center no-print-col">
+                                            <button onclick="openEditBookModal(<?= $row['id'] ?>, '<?= addslashes($row['title']) ?>', '<?= addslashes($row['author']) ?>')" class="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white w-8 h-8 rounded-xl flex items-center justify-center transition"><i class="fas fa-edit text-xs"></i></button>
+                                            <a href="?delete=<?= $row['id'] ?>&section=books_list" onclick="return confirm('Hapus buku ini?')" class="text-red-400 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition"><i class="fas fa-trash"></i></a>
                                         </td>
                                     </tr>
                                     <?php endwhile; ?>
@@ -440,44 +402,19 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
                     </div>
                 <?php endif; ?>
 
-                <!-- SECTION BUKU: TAMBAH & KONDISI -->
+                <!-- SECTION BUKU: TAMBAH -->
                 <?php if($section == 'add_book'): ?>
                     <div class="max-w-lg mx-auto bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
                         <div class="text-center mb-6"><div class="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600 text-2xl"><i class="fas fa-book"></i></div><h2 class="text-xl font-bold text-slate-800">Tambah Buku Baru</h2></div>
                         <form method="POST" action="" class="space-y-4">
                             <div><label class="text-xs font-bold text-slate-500 uppercase">Judul Buku</label><input type="text" name="title" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-300 outline-none" required></div>
                             <div><label class="text-xs font-bold text-slate-500 uppercase">Penulis</label><input type="text" name="author" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-300 outline-none" required></div>
-                            <div><label class="text-xs font-bold text-slate-500 uppercase">Stok Awal</label><input type="number" name="stock" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-300 outline-none" required></div>
                             <button type="submit" name="add_book" class="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition mt-4">Simpan Buku</button>
                         </form>
                     </div>
                 <?php endif; ?>
 
-                <?php if($section == 'book_condition'): ?>
-                    <div class="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-                        <div class="p-5 border-b border-slate-50 bg-teal-50/50"><h2 class="font-bold text-teal-700 uppercase text-xs tracking-wider"><i class="fas fa-heartbeat mr-2"></i> Update Kondisi Buku</h2></div>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left text-sm">
-                                <thead class="bg-slate-50 text-slate-400 text-[10px] uppercase font-bold">
-                                    <tr><th class="p-4">Buku</th><th class="p-4 text-center">Kondisi</th><th class="p-4 text-center w-1/3">Health</th><th class="p-4 text-center">Aksi</th></tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-50">
-                                    <?php mysqli_data_seek($condition_books, 0); while($row = mysqli_fetch_assoc($condition_books)): 
-                                        $kondisi = $row['kondisi'] ?? 'Baik'; $persentase = (int)($row['persentase_kondisi'] ?? 90);
-                                        $bar_color = $persentase >= 80 ? 'bg-green-500' : ($persentase >= 50 ? 'bg-yellow-400' : 'bg-red-500');
-                                    ?>
-                                    <tr class="hover:bg-slate-50 transition">
-                                        <td class="p-4 text-slate-800 font-bold text-sm"><?= $row['title'] ?></td>
-                                        <td class="p-4 text-center"><span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase <?= $persentase >= 80 ? 'bg-green-100 text-green-700' : ($persentase >= 50 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700') ?>"><?= $kondisi ?></span></td>
-                                        <td class="p-4 text-center align-middle"><div class="w-full bg-slate-200 rounded-full h-2 mb-1"><div class="<?= $bar_color ?> h-2 rounded-full" style="width: <?= $persentase ?>%"></div></div><span class="text-[10px] text-slate-500 font-bold"><?= $persentase ?>%</span></td>
-                                        <td class="p-4 text-center"><button onclick="openConditionModal(<?= $row['id'] ?>, '<?= $kondisi ?>', <?= $persentase ?>, '<?= $row['title'] ?>')" class="text-teal-600 hover:bg-teal-50 px-3 py-1.5 rounded-xl text-xs font-bold transition border border-teal-100"><i class="fas fa-sync-alt"></i> Update</button></td>
-                                    </tr>
-                                    <?php endwhile; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                <?php endif; ?>
+                <!-- SECTION KONDISI BUKU DIHAPUS (HTML) -->
 
                 <!-- SECTION ANGGOTA -->
                 <?php if($section == 'add_member'): ?>
@@ -529,7 +466,21 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
                         <div class="text-center mb-6"><div class="bg-orange-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-orange-600 text-2xl"><i class="fas fa-hand-holding-heart"></i></div><h2 class="text-xl font-bold text-slate-800">Input Peminjaman</h2></div>
                         <form method="POST" action="" class="space-y-4">
                             <div><label class="text-xs font-bold text-slate-500 uppercase">Pilih Anggota</label><select name="user_id" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-300 outline-none" required><option value="">-- Pilih Siswa --</option><?php while($u = mysqli_fetch_assoc($all_members)): ?><option value="<?= $u['id'] ?>"><?= $u['username'] ?></option><?php endwhile; ?></select></div>
-                            <div><label class="text-xs font-bold text-slate-500 uppercase">Pilih Buku</label><select name="book_id" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-300 outline-none" required><option value="">-- Pilih Buku --</option><?php while($b = mysqli_fetch_assoc($all_books_drop)): ?><option value="<?= $b['id'] ?>" <?= $b['stock'] <= 0 ? 'disabled class="text-gray-400"' : '' ?>><?= $b['title'] ?> (Stok: <?= $b['stock'] ?>)</option><?php endwhile; ?></select></div>
+                            <div><label class="text-xs font-bold text-slate-500 uppercase">Pilih Buku</label>
+                                <select name="book_id" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-300 outline-none" required>
+                                    <option value="">-- Pilih Buku --</option>
+                                    <?php 
+                                    mysqli_data_seek($all_books_drop, 0); 
+                                    while($b = mysqli_fetch_assoc($all_books_drop)): 
+                                        $cek = mysqli_query($conn, "SELECT id FROM loans WHERE book_id = " . $b['id'] . " AND status='dipinjam' LIMIT 1");
+                                        $is_dipinjam = (mysqli_num_rows($cek) > 0);
+                                    ?>
+                                        <option value="<?= $b['id'] ?>" <?= $is_dipinjam ? 'disabled' : '' ?>>
+                                            <?= $b['title'] ?> <?= $is_dipinjam ? '(Sedang Dipinjam)' : '' ?>
+                                        </option>
+                                    <?php endwhile; ?>
+                                </select>
+                            </div>
                             <button type="submit" name="add_loan" class="w-full bg-orange-500 text-white font-bold py-3 rounded-xl hover:bg-orange-600 transition mt-4">Proses Peminjaman</button>
                         </form>
                     </div>
@@ -554,14 +505,10 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
                                 <button onclick="window.print()" class="bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-black transition"><i class="fas fa-print"></i> PDF</button>
                             </div>
                         </div>
-
-                        <!-- Header Print -->
                         <div class="print-header">
                             <h1 class="text-xl font-bold uppercase mb-1">Laporan Buku Sedang Dipinjam</h1>
                             <p class="text-sm">Dicetak: <?= date('d-m-Y') ?></p>
-                            <?php if($date_loans): ?><p class="text-xs mt-1 font-bold">Filter Tanggal Pinjam: <?= $date_loans ?></p><?php endif; ?>
                         </div>
-
                         <div class="overflow-x-auto">
                             <table class="w-full text-left">
                                 <thead class="bg-slate-50 text-slate-400 text-[10px] uppercase font-bold">
@@ -589,47 +536,27 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
                 <!-- RIWAYAT PINJAM -->
                 <?php if($section == 'loans_history'): ?>
                     <div class="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden print-content">
-                        <!-- Judul Riwayat Pinjam (MIRIP UPDATE KONDISI) -->
-                        <div class="p-5 border-b border-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
-                            <h2 class="font-bold text-slate-700 uppercase text-xs tracking-wider"><i class="fas fa-history mr-2 text-slate-400"></i> Riwayat Pinjam</h2>
-                            
-                            <div class="flex gap-2 w-full sm:w-auto items-center">
-                                <!-- Form Cari -->
-                                <form method="GET" class="relative w-full sm:w-64 flex items-center gap-2">
+                        <div class="p-5 border-b border-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 print-controls no-print">
+                            <h2 class="font-bold text-slate-700 flex items-center uppercase text-xs tracking-wider"><i class="fas fa-history mr-2 text-slate-400"></i> Riwayat Pinjam</h2>
+                            <div class="flex gap-2 w-full lg:w-auto">
+                                <form method="GET" class="relative w-full lg:w-64 flex items-center gap-2">
                                     <input type="hidden" name="section" value="loans_history">
                                     <input type="text" name="search_history" value="<?= htmlspecialchars($search_history) ?>" placeholder="Cari nama/buku..." class="w-full pl-10 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-300 outline-none bg-white">
                                     <i class="fas fa-search absolute left-4 top-2.5 text-slate-300 text-xs"></i>
                                     <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 transition">Cari</button>
                                 </form>
-                                
-                                <!-- Tombol Reset -->
-                                <a href="?section=loans_history" class="bg-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-300 transition flex items-center justify-center">
-                                    <i class="fas fa-undo mr-1"></i> Reset
-                                </a>
-
-                                <!-- Tombol PDF -->
-                                <button onclick="window.print()" class="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-black transition flex items-center justify-center">
-                                    <i class="fas fa-print mr-1"></i> PDF
-                                </button>
+                                <a href="?section=loans_history" class="bg-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-300 transition flex items-center justify-center whitespace-nowrap"><i class="fas fa-undo mr-1"></i> Reset</a>
+                                <button onclick="window.print()" class="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-black transition flex items-center justify-center whitespace-nowrap"><i class="fas fa-print mr-1"></i> PDF</button>
                             </div>
                         </div>
-
-                        <!-- Header Print (Muncul saat print) -->
                         <div class="print-header">
                             <h1 class="text-xl font-bold uppercase mb-1">Laporan Riwayat Peminjaman</h1>
                             <p class="text-sm">Dicetak: <?= date('d-m-Y') ?></p>
-                            <?php if($search_history): ?><p class="text-xs mt-1 font-bold">Filter: <?= htmlspecialchars($search_history) ?></p><?php endif; ?>
                         </div>
-
                         <div class="overflow-x-auto p-2">
                             <table class="w-full text-left">
                                 <thead class="bg-slate-50 text-slate-500 text-[10px] uppercase font-bold tracking-wider">
-                                    <tr>
-                                        <th class="p-4">Anggota</th>
-                                        <th class="p-4">Buku</th>
-                                        <th class="p-4 text-center">Tgl Pinjam</th>
-                                        <th class="p-4 text-center">Status</th>
-                                    </tr>
+                                    <tr><th class="p-4">Anggota</th><th class="p-4">Buku</th><th class="p-4 text-center">Tgl Pinjam</th><th class="p-4 text-center">Status</th></tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-50 text-sm">
                                     <?php while($h = mysqli_fetch_assoc($history)): ?>
@@ -637,11 +564,7 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
                                         <td class="p-4 font-bold text-slate-700"><?= $h['username'] ?></td>
                                         <td class="p-4 text-slate-600 truncate max-w-[150px]"><?= $h['title'] ?></td>
                                         <td class="p-4 text-center text-slate-500 text-xs"><?= $h['loan_date'] ?></td>
-                                        <td class="p-4 text-center">
-                                            <span class="bg-slate-100 text-slate-600 px-2 py-1 rounded-xl text-[10px] font-bold uppercase">
-                                                <?= $h['status'] ?>
-                                            </span>
-                                        </td>
+                                        <td class="p-4 text-center"><span class="bg-slate-100 text-slate-600 px-2 py-1 rounded-xl text-[10px] font-bold uppercase"><?= $h['status'] ?></span></td>
                                     </tr>
                                     <?php endwhile; ?>
                                 </tbody>
@@ -649,12 +572,11 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
                         </div>
                     </div>
                 <?php endif; ?>
-
             </div>
         </main>
     </div>
 
-    <!-- MODAL UPDATE BUKU (BARU) -->
+    <!-- MODAL EDIT BUKU -->
     <div id="editBookModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-[100] backdrop-blur-sm">
         <div class="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm mx-4">
             <h3 class="text-lg font-bold text-slate-800 mb-4">Edit Buku</h3>
@@ -662,35 +584,9 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
                 <input type="hidden" name="book_id" id="edit_book_id">
                 <input type="text" name="title" id="edit_title" class="w-full p-2 border rounded-xl text-sm" required placeholder="Judul Buku">
                 <input type="text" name="author" id="edit_author" class="w-full p-2 border rounded-xl text-sm" required placeholder="Penulis">
-                <input type="number" name="stock" id="edit_stock" class="w-full p-2 border rounded-xl text-sm" required placeholder="Stok">
                 <div class="flex gap-2 pt-2">
                     <button type="button" onclick="closeEditBookModal()" class="flex-1 bg-slate-100 text-slate-600 py-2 rounded-xl text-sm font-bold hover:bg-slate-200">Batal</button>
                     <button type="submit" name="update_book" class="flex-1 bg-blue-600 text-white py-2 rounded-xl text-sm font-bold hover:bg-blue-700">Simpan</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- MODAL UPDATE KONDISI -->
-    <div id="conditionModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-[100] backdrop-blur-sm">
-        <div class="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm mx-4">
-            <h3 class="text-lg font-bold text-slate-800 mb-4">Update Kondisi</h3>
-            <form method="POST" action="?section=book_condition" class="space-y-4">
-                <input type="hidden" name="book_id" id="cond_book_id">
-                <div class="text-sm font-bold text-slate-600 mb-2" id="cond_book_title">...</div>
-                <select name="kondisi" id="cond_status" class="w-full p-2 border rounded-xl text-sm">
-                    <option value="Baru">Baru</option>
-                    <option value="Baik">Baik</option>
-                    <option value="Rusak Ringan">Rusak Ringan</option>
-                    <option value="Rusak Berat">Rusak Berat</option>
-                </select>
-                <div>
-                    <label class="text-xs font-bold text-slate-400">Persentase: <span id="cond_perc_val" class="text-teal-600">90%</span></label>
-                    <input type="range" name="persentase" id="cond_perc" min="0" max="100" value="90" oninput="document.getElementById('cond_perc_val').innerText = this.value + '%'" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-500">
-                </div>
-                <div class="flex gap-2 pt-2">
-                    <button type="button" onclick="closeConditionModal()" class="flex-1 bg-slate-100 text-slate-600 py-2 rounded-xl text-sm font-bold hover:bg-slate-200">Batal</button>
-                    <button type="submit" name="update_condition" class="flex-1 bg-teal-600 text-white py-2 rounded-xl text-sm font-bold hover:bg-teal-700">Simpan</button>
                 </div>
             </form>
         </div>
@@ -727,11 +623,10 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
             sidebar.classList.toggle('-translate-x-full');
         }
 
-        function openEditBookModal(id, title, author, stock) {
+        function openEditBookModal(id, title, author) {
             document.getElementById('edit_book_id').value = id;
             document.getElementById('edit_title').value = title;
             document.getElementById('edit_author').value = author;
-            document.getElementById('edit_stock').value = stock;
             document.getElementById('editBookModal').classList.remove('hidden');
             document.getElementById('editBookModal').classList.add('flex');
         }
@@ -739,21 +634,6 @@ if ($search_history) $query_history .= " AND (users.username LIKE '%$search_hist
         function closeEditBookModal() {
             document.getElementById('editBookModal').classList.add('hidden');
             document.getElementById('editBookModal').classList.remove('flex');
-        }
-
-        function openConditionModal(id, kondisi, persentase, title) {
-            document.getElementById('cond_book_id').value = id;
-            document.getElementById('cond_book_title').innerText = title;
-            document.getElementById('cond_status').value = kondisi;
-            document.getElementById('cond_perc').value = persentase;
-            document.getElementById('cond_perc_val').innerText = persentase + '%';
-            document.getElementById('conditionModal').classList.remove('hidden');
-            document.getElementById('conditionModal').classList.add('flex');
-        }
-
-        function closeConditionModal() {
-            document.getElementById('conditionModal').classList.add('hidden');
-            document.getElementById('conditionModal').classList.remove('flex');
         }
 
         function openEditModal(member) {
